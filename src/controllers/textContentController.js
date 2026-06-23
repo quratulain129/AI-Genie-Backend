@@ -1,6 +1,14 @@
 const ollamaService = require('../services/ollamaService');
 const Content = require('../models/Content');
 const ContentSession = require('../models/ContentSession');
+const {
+  COMPLETE_RESPONSE_INSTRUCTION,
+  TEXT_TOKEN_LIMITS,
+} = require('../config/generationLimits');
+const {
+  getSessionHistory,
+  buildPromptWithSessionHistory,
+} = require('../utils/sessionContext');
 
 const generateTextContent = async (req, res) => {
   try {
@@ -31,21 +39,30 @@ const generateTextContent = async (req, res) => {
       });
     }
 
-    let systemPrompt = '';
     const contentTypes = {
-      article: 'Write a comprehensive, well-structured article',
-      blog: 'Write an engaging blog post',
-      description: 'Write a detailed product description',
-      summary: 'Write a concise summary',
+      article:
+        'Write a comprehensive, well-structured article with a clear introduction, multiple detailed body sections, and a full conclusion. No word limit — write the entire article',
+      blog:
+        'Write an engaging, complete blog post with introduction, detailed main content, and conclusion. No word limit — write the entire post',
+      description: 'Write a detailed, complete product description',
+      summary: 'Write a concise but complete summary',
     };
 
+    const typeKey = contentType && contentTypes[contentType] ? contentType : 'general';
+
+    let currentInstruction;
     if (contentType && contentTypes[contentType]) {
-      systemPrompt = `${contentTypes[contentType]} about: ${prompt}\n\n`;
+      currentInstruction = `${contentTypes[contentType]} about: ${prompt}\n\n${COMPLETE_RESPONSE_INSTRUCTION}`;
     } else {
-      systemPrompt = `Generate high-quality text content about: ${prompt}\n\n`;
+      currentInstruction = `Generate high-quality text content about: ${prompt}\n\n${COMPLETE_RESPONSE_INSTRUCTION}`;
     }
 
-    const generatedContent = await ollamaService.generateText(systemPrompt);
+    const sessionHistory = await getSessionHistory(session.id);
+    const systemPrompt = buildPromptWithSessionHistory(sessionHistory, currentInstruction);
+
+    const generatedContent = await ollamaService.generateText(systemPrompt, null, {
+      max_tokens: TEXT_TOKEN_LIMITS[typeKey],
+    });
 
     await Content.create({
       userId: req.user.id,

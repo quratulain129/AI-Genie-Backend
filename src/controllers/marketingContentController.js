@@ -1,6 +1,11 @@
 const ollamaService = require('../services/ollamaService');
 const Content = require('../models/Content');
 const ContentSession = require('../models/ContentSession');
+const { MARKETING_TYPE_CONFIG } = require('../config/generationLimits');
+const {
+  getSessionHistory,
+  buildPromptWithSessionHistory,
+} = require('../utils/sessionContext');
 
 const generateMarketingContent = async (req, res) => {
   try {
@@ -31,24 +36,16 @@ const generateMarketingContent = async (req, res) => {
       });
     }
 
-    let systemPrompt = '';
-    const marketingTypes = {
-      ad: `Create compelling advertisement copy that is persuasive and attention-grabbing. Topic: ${prompt}`,
-      slogan: `Create a catchy, memorable slogan. Topic: ${prompt}`,
-      social: `Create engaging social media post content that is shareable and relevant. Topic: ${prompt}`,
-      email: `Create professional email marketing content. Topic: ${prompt}`,
-      seo: `Create SEO-optimized content with relevant keywords. Topic: ${prompt}`,
-    };
+    const typeKey = type && MARKETING_TYPE_CONFIG[type] ? type : 'general';
+    const config = MARKETING_TYPE_CONFIG[typeKey];
 
-    if (type && marketingTypes[type]) {
-      systemPrompt = marketingTypes[type];
-    } else {
-      systemPrompt = `Create effective marketing content. Topic: ${prompt}`;
-    }
+    const currentInstruction = `${config.task(prompt)}\n\n${config.completion}`;
+    const sessionHistory = await getSessionHistory(session.id);
+    const systemPrompt = buildPromptWithSessionHistory(sessionHistory, currentInstruction);
 
     const generatedContent = await ollamaService.generateText(systemPrompt, null, {
-      temperature: 0.8,
-      max_tokens: 512,
+      temperature: config.temperature,
+      max_tokens: config.maxTokens,
     });
 
     await Content.create({

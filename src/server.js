@@ -11,6 +11,7 @@ const marketingContentRoutes = require('./routes/marketingContent');
 const mediaContentRoutes = require('./routes/mediaContent');
 const chatRoutes = require('./routes/chat');
 const contentSessionRoutes = require('./routes/contentSession');
+const contactRoutes = require('./routes/contact');
 
 // Initialize Express app
 const app = express();
@@ -39,6 +40,7 @@ app.use('/api/marketing-content', marketingContentRoutes);
 app.use('/api/media-content', mediaContentRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/content-sessions', contentSessionRoutes);
+app.use('/api/contact', contactRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -55,8 +57,11 @@ app.use(errorHandler);
 // Start server
 const PORT = process.env.PORT || 5001;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
+
+// Allow long-running generation requests (articles can take several minutes)
+server.setTimeout(600000);
 

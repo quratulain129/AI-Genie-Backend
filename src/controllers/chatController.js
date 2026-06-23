@@ -1,6 +1,7 @@
 const ollamaService = require('../services/ollamaService');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const { CHAT_TOKEN_LIMIT } = require('../config/generationLimits');
 
 const sendMessage = async (req, res) => {
   try {
@@ -47,15 +48,21 @@ const sendMessage = async (req, res) => {
       limit: 20,
     });
 
-    const contextMessages = recentMessages
-      .map((msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
-      .join('\n');
+    const chatMessages = [
+      {
+        role: 'system',
+        content:
+          'You are a helpful AI assistant. Continue the conversation naturally using the full message history. Always give complete answers — do not stop mid-sentence or leave your response unfinished.',
+      },
+      ...recentMessages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      })),
+    ];
 
-    const systemPrompt = `You are a helpful AI assistant. Continue the conversation naturally and provide useful, accurate information.\n\nConversation history:\n${contextMessages}\n\nAssistant:`;
-
-    const response = await ollamaService.generateText(systemPrompt, null, {
+    const response = await ollamaService.generateChat(chatMessages, null, {
       temperature: 0.7,
-      max_tokens: 512,
+      max_tokens: CHAT_TOKEN_LIMIT,
     });
 
     await Message.create({

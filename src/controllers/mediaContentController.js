@@ -4,6 +4,15 @@ const ollamaService = require('../services/ollamaService');
 const Content = require('../models/Content');
 const ContentSession = require('../models/ContentSession');
 const { saveBase64Image, getImagePath, imageExists } = require('../utils/imageStorage');
+const {
+  COMPLETE_RESPONSE_INSTRUCTION,
+  CAPTION_TOKEN_LIMIT,
+  LOGO_TOKEN_LIMIT,
+} = require('../config/generationLimits');
+const {
+  getSessionHistory,
+  buildPromptWithSessionHistory,
+} = require('../utils/sessionContext');
 
 async function getOrCreateSession(userId, prompt, sessionId) {
   if (sessionId) {
@@ -33,12 +42,15 @@ const generateCaption = async (req, res) => {
     const session = await getOrCreateSession(req.user.id, effectivePrompt, sessionId);
 
     const systemPrompt = imageDescription
-      ? `Generate an engaging caption for this image/video: ${imageDescription}\n\nCaption:`
-      : `Generate an engaging, creative caption. Topic: ${prompt}\n\nCaption:`;
+      ? `Generate an engaging caption for this image/video: ${imageDescription}\n\n${COMPLETE_RESPONSE_INSTRUCTION}\n\nCaption:`
+      : `Generate an engaging, creative caption. Topic: ${prompt}\n\n${COMPLETE_RESPONSE_INSTRUCTION}\n\nCaption:`;
 
-    const generatedContent = await ollamaService.generateText(systemPrompt, null, {
+    const sessionHistory = await getSessionHistory(session.id);
+    const promptWithContext = buildPromptWithSessionHistory(sessionHistory, systemPrompt);
+
+    const generatedContent = await ollamaService.generateText(promptWithContext, null, {
       temperature: 0.7,
-      max_tokens: 200,
+      max_tokens: CAPTION_TOKEN_LIMIT,
     });
 
     await Content.create({
@@ -83,13 +95,19 @@ const textToImage = async (req, res) => {
     const session = await getOrCreateSession(req.user.id, prompt, sessionId);
     const imageServiceURL = process.env.IMAGE_SERVICE_URL || 'http://localhost:7860';
 
+    const sessionHistory = await getSessionHistory(session.id);
+    const imagePrompt = buildPromptWithSessionHistory(
+      sessionHistory,
+      `Create an image: ${prompt}`
+    );
+
     const response = await axios.post(`${imageServiceURL}/api/txt2img`, {
-      prompt,
-      negative_prompt: negativePrompt || 'blurry, bad quality, distorted',
-      steps: steps || 20,
-      width: width || 512,
-      height: height || 512,
-    }, { timeout: 120000 });
+      prompt: imagePrompt,
+      negative_prompt: negativePrompt || 'blurry, low quality, distorted',
+      steps: steps || 4,
+      width: width || 384,
+      height: height || 384,
+    }, { timeout: 300000 });
 
     const content = await Content.create({
       userId: req.user.id,
@@ -117,9 +135,14 @@ const textToImage = async (req, res) => {
     });
   } catch (error) {
     console.error('Text-to-image generation error:', error);
-    const msg = error.code === 'ECONNREFUSED'
-      ? 'Image service is not running. Start it with: cd image-service && python server.py'
-      : error.message || 'Failed to generate image';
+    let msg = error.message || 'Failed to generate image';
+    if (error.code === 'ECONNREFUSED') {
+      msg = 'Image service is not running. Start it with: cd image-service && python3 server.py';
+    } else if (error.code === 'ECONNABORTED' || msg.includes('timeout')) {
+      msg = 'Image generation timed out. Try a simpler prompt or wait and retry.';
+    } else if (error.response?.status === 429) {
+      msg = 'Image generation already in progress. Please wait for the current image to finish.';
+    }
     res.status(error.status || 500).json({
       success: false,
       error: msg,
@@ -145,11 +168,14 @@ const generateLogo = async (req, res) => {
 
     const systemPrompt = `Generate a detailed description for a logo design. ${
       companyName ? `Company: ${companyName}. ` : ''
-    }${style ? `Style: ${style}. ` : ''}Requirements: ${prompt || 'Create a professional logo'}\n\nLogo Description:`;
+    }${style ? `Style: ${style}. ` : ''}Requirements: ${prompt || 'Create a professional logo'}\n\n${COMPLETE_RESPONSE_INSTRUCTION}\n\nLogo Description:`;
 
-    const generatedContent = await ollamaService.generateText(systemPrompt, null, {
+    const sessionHistory = await getSessionHistory(session.id);
+    const promptWithContext = buildPromptWithSessionHistory(sessionHistory, systemPrompt);
+
+    const generatedContent = await ollamaService.generateText(promptWithContext, null, {
       temperature: 0.8,
-      max_tokens: 300,
+      max_tokens: LOGO_TOKEN_LIMIT,
     });
 
     await Content.create({
