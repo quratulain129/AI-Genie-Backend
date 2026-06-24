@@ -5,7 +5,7 @@ services:
     container_name: aigenie-postgres
     restart: unless-stopped
     ports:
-      - "5433:5432"
+      - "5432:5432"
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
@@ -46,12 +46,12 @@ services:
       OLLAMA_NUM_CTX: 8192
       SAVE_CONTENT_HISTORY: true
       IMAGE_SERVICE_URL: http://host.docker.internal:7860
-      CONTACT_TO_EMAIL: ${CONTACT_TO_EMAIL:-myselfiqraali08@gmail.com}
+      CONTACT_TO_EMAIL: ${CONTACT_TO_EMAIL:-aigenieexpert@gmail.com}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      CONTACT_FROM_EMAIL: ${CONTACT_FROM_EMAIL:-}
+      SMTP_USER: ${SMTP_USER:-aigenieexpert@gmail.com}
+      SMTP_PASS: ${SMTP_PASS:-wjfr pnqh wrkb kdgg}
+      CONTACT_FROM_EMAIL: ${CONTACT_FROM_EMAIL:-aigenieexpert@gmail.com}
     volumes:
       - generated_images:/app/uploads/generated-images
     depends_on:
