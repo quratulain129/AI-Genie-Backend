@@ -1,14 +1,50 @@
 const ollamaService = require('../services/ollamaService');
 const Content = require('../models/Content');
 const ContentSession = require('../models/ContentSession');
-const {
-  COMPLETE_RESPONSE_INSTRUCTION,
-  TEXT_TOKEN_LIMITS,
-} = require('../config/generationLimits');
+const { TEXT_TYPE_CONFIG } = require('../config/generationLimits');
 const {
   getSessionHistory,
   buildPromptWithSessionHistory,
 } = require('../utils/sessionContext');
+
+function countWords(text) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+async function finalizeArticle(content, topic) {
+  let result = content.trim();
+  let words = countWords(result);
+
+  if (words >= 700 && words <= 750) {
+    return result;
+  }
+
+  if (words < 700) {
+    const expandPrompt = `The article below is only ${words} words and is incomplete. Rewrite it as ONE complete article of 700-750 words about "${topic}".
+
+Include a full introduction, 3-4 detailed body sections with subheadings, and a proper conclusion that covers the entire topic. Output only the finished article.
+
+Draft to expand:
+${result}`;
+    result = await ollamaService.generateText(expandPrompt, null, {
+      max_tokens: TEXT_TYPE_CONFIG.article.maxTokens,
+      temperature: TEXT_TYPE_CONFIG.article.temperature,
+    });
+    words = countWords(result);
+  }
+
+  if (words > 750) {
+    const trimPrompt = `Shorten the article below to 700-750 words while keeping all key points, subheadings, and a complete conclusion. Output only the revised article.
+
+${result}`;
+    result = await ollamaService.generateText(trimPrompt, null, {
+      max_tokens: TEXT_TYPE_CONFIG.article.maxTokens,
+      temperature: TEXT_TYPE_CONFIG.article.temperature,
+    });
+  }
+
+  return result.trim();
+}
 
 const generateTextContent = async (req, res) => {
   try {
@@ -39,30 +75,21 @@ const generateTextContent = async (req, res) => {
       });
     }
 
-    const contentTypes = {
-      article:
-        'Write a comprehensive, well-structured article with a clear introduction, multiple detailed body sections, and a full conclusion. No word limit — write the entire article',
-      blog:
-        'Write an engaging, complete blog post with introduction, detailed main content, and conclusion. No word limit — write the entire post',
-      description: 'Write a detailed, complete product description',
-      summary: 'Write a concise but complete summary',
-    };
-
-    const typeKey = contentType && contentTypes[contentType] ? contentType : 'general';
-
-    let currentInstruction;
-    if (contentType && contentTypes[contentType]) {
-      currentInstruction = `${contentTypes[contentType]} about: ${prompt}\n\n${COMPLETE_RESPONSE_INSTRUCTION}`;
-    } else {
-      currentInstruction = `Generate high-quality text content about: ${prompt}\n\n${COMPLETE_RESPONSE_INSTRUCTION}`;
-    }
+    const typeKey = contentType && TEXT_TYPE_CONFIG[contentType] ? contentType : 'general';
+    const typeConfig = TEXT_TYPE_CONFIG[typeKey];
+    const currentInstruction = `${typeConfig.task(prompt)}\n\n${typeConfig.completion}`;
 
     const sessionHistory = await getSessionHistory(session.id);
     const systemPrompt = buildPromptWithSessionHistory(sessionHistory, currentInstruction);
 
-    const generatedContent = await ollamaService.generateText(systemPrompt, null, {
-      max_tokens: TEXT_TOKEN_LIMITS[typeKey],
+    let generatedContent = await ollamaService.generateText(systemPrompt, null, {
+      max_tokens: typeConfig.maxTokens,
+      temperature: typeConfig.temperature,
     });
+
+    if (typeKey === 'article') {
+      generatedContent = await finalizeArticle(generatedContent, prompt);
+    }
 
     await Content.create({
       userId: req.user.id,
