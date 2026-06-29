@@ -1,49 +1,66 @@
 const ollamaService = require('../services/ollamaService');
 const Content = require('../models/Content');
 const ContentSession = require('../models/ContentSession');
-const { TEXT_TYPE_CONFIG } = require('../config/generationLimits');
+const {
+  GENERAL_INSTRUCTION,
+  BRIEF_REPLY_INSTRUCTION,
+  TEXT_TYPE_CONFIG,
+  TEXT_TOKEN_LIMITS,
+} = require('../config/generationLimits');
 const {
   getSessionHistory,
   buildPromptWithSessionHistory,
 } = require('../utils/sessionContext');
 
-function countWords(text) {
-  return text.trim().split(/\s+/).filter(Boolean).length;
+function isCasualGreeting(prompt) {
+  const trimmed = prompt.trim();
+  if (!trimmed) return true;
+
+  return /^(hi|hello|hey|hiya|yo|sup|good\s+(morning|afternoon|evening)|thanks|thank\s*you|ok|okay|bye|goodbye)[\s!.?,]*$/i.test(
+    trimmed
+  );
 }
 
-async function finalizeArticle(content, topic) {
-  let result = content.trim();
-  let words = countWords(result);
+function buildGenerationPlan(contentType, prompt) {
+  const type = contentType || 'general';
+  const isGeneral = !contentType || contentType === '';
 
-  if (words >= 700 && words <= 750) {
-    return result;
+  // Brief replies only for General + actual greetings (never for Article/Blog/etc.)
+  if (isGeneral && isCasualGreeting(prompt)) {
+    return {
+      instruction: BRIEF_REPLY_INSTRUCTION(prompt),
+      genOptions: {
+        max_tokens: TEXT_TOKEN_LIMITS.generalBrief,
+        maxContinuations: 0,
+        temperature: 0.7,
+      },
+    };
   }
 
-  if (words < 700) {
-    const expandPrompt = `The article below is only ${words} words and is incomplete. Rewrite it as ONE complete article of 700-750 words about "${topic}".
+  const typeConfig = TEXT_TYPE_CONFIG[type];
 
-Include a full introduction, 3-4 detailed body sections with subheadings, and a proper conclusion that covers the entire topic. Output only the finished article.
-
-Draft to expand:
-${result}`;
-    result = await ollamaService.generateText(expandPrompt, null, {
-      max_tokens: TEXT_TYPE_CONFIG.article.maxTokens,
-      temperature: TEXT_TYPE_CONFIG.article.temperature,
-    });
-    words = countWords(result);
+  if (typeConfig) {
+    const { buildInstruction, maxTokens, maxContinuations, temperature, continuationPrompt } =
+      typeConfig;
+    return {
+      instruction: buildInstruction(prompt),
+      genOptions: {
+        max_tokens: maxTokens,
+        maxContinuations: maxContinuations ?? 0,
+        temperature: temperature ?? 0.7,
+        ...(continuationPrompt ? { continuationPrompt } : {}),
+      },
+    };
   }
 
-  if (words > 750) {
-    const trimPrompt = `Shorten the article below to 700-750 words while keeping all key points, subheadings, and a complete conclusion. Output only the revised article.
-
-${result}`;
-    result = await ollamaService.generateText(trimPrompt, null, {
-      max_tokens: TEXT_TYPE_CONFIG.article.maxTokens,
-      temperature: TEXT_TYPE_CONFIG.article.temperature,
-    });
-  }
-
-  return result.trim();
+  return {
+    instruction: `${GENERAL_INSTRUCTION}\n\nUser request: ${prompt}`,
+    genOptions: {
+      max_tokens: TEXT_TOKEN_LIMITS.general,
+      maxContinuations: 1,
+      temperature: 0.7,
+    },
+  };
 }
 
 const generateTextContent = async (req, res) => {
@@ -75,21 +92,15 @@ const generateTextContent = async (req, res) => {
       });
     }
 
-    const typeKey = contentType && TEXT_TYPE_CONFIG[contentType] ? contentType : 'general';
-    const typeConfig = TEXT_TYPE_CONFIG[typeKey];
-    const currentInstruction = `${typeConfig.task(prompt)}\n\n${typeConfig.completion}`;
-
+    const { instruction, genOptions } = buildGenerationPlan(contentType, prompt);
     const sessionHistory = await getSessionHistory(session.id);
-    const systemPrompt = buildPromptWithSessionHistory(sessionHistory, currentInstruction);
+    const systemPrompt = buildPromptWithSessionHistory(sessionHistory, instruction);
 
-    let generatedContent = await ollamaService.generateText(systemPrompt, null, {
-      max_tokens: typeConfig.maxTokens,
-      temperature: typeConfig.temperature,
-    });
-
-    if (typeKey === 'article') {
-      generatedContent = await finalizeArticle(generatedContent, prompt);
-    }
+    const generatedContent = await ollamaService.generateText(
+      systemPrompt,
+      null,
+      genOptions
+    );
 
     await Content.create({
       userId: req.user.id,

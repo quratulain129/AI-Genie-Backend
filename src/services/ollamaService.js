@@ -60,6 +60,7 @@ class OllamaService {
         }
 
         currentPrompt =
+          options.continuationPrompt ||
           'Continue writing from exactly where you stopped. Do not repeat any text already written. Finish the article with a complete conclusion.\n\n';
       }
 
