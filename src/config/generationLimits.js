@@ -159,7 +159,16 @@ const MARKETING_TOKEN_LIMITS = {
 };
 
 const CHAT_TOKEN_LIMIT = UNLIMITED;
-const CAPTION_TOKEN_LIMIT = 1024;
+const CAPTION_TOKEN_LIMIT = 150;
+
+const CAPTION_INSTRUCTION = `Write ONE short social media caption only.
+
+Rules:
+- Maximum 1-3 sentences (under 40 words total).
+- Catchy, engaging, and suitable for Instagram, TikTok, or Facebook.
+- Do NOT write an article, essay, blog post, or multiple paragraphs.
+- No introductions, conclusions, lists, or lengthy explanations.
+- Output ONLY the caption text — nothing else.`;
 const LOGO_TOKEN_LIMIT = 2048;
 
 module.exports = {
@@ -180,5 +189,6 @@ module.exports = {
   MARKETING_TOKEN_LIMITS,
   CHAT_TOKEN_LIMIT,
   CAPTION_TOKEN_LIMIT,
+  CAPTION_INSTRUCTION,
   LOGO_TOKEN_LIMIT,
 };

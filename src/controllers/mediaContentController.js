@@ -6,6 +6,7 @@ const ContentSession = require('../models/ContentSession');
 const { saveBase64Image, getImagePath, imageExists } = require('../utils/imageStorage');
 const {
   COMPLETE_RESPONSE_INSTRUCTION,
+  CAPTION_INSTRUCTION,
   CAPTION_TOKEN_LIMIT,
   LOGO_TOKEN_LIMIT,
 } = require('../config/generationLimits');
@@ -41,16 +42,17 @@ const generateCaption = async (req, res) => {
     const effectivePrompt = prompt || imageDescription;
     const session = await getOrCreateSession(req.user.id, effectivePrompt, sessionId);
 
-    const systemPrompt = imageDescription
-      ? `Generate an engaging caption for this image/video: ${imageDescription}\n\n${COMPLETE_RESPONSE_INSTRUCTION}\n\nCaption:`
-      : `Generate an engaging, creative caption. Topic: ${prompt}\n\n${COMPLETE_RESPONSE_INSTRUCTION}\n\nCaption:`;
+    const baseInstruction = imageDescription
+      ? `${CAPTION_INSTRUCTION}\n\nImage/video: ${imageDescription}`
+      : `${CAPTION_INSTRUCTION}\n\nTopic: ${prompt}`;
 
     const sessionHistory = await getSessionHistory(session.id);
-    const promptWithContext = buildPromptWithSessionHistory(sessionHistory, systemPrompt);
+    const promptWithContext = buildPromptWithSessionHistory(sessionHistory, baseInstruction);
 
     const generatedContent = await ollamaService.generateText(promptWithContext, null, {
-      temperature: 0.7,
+      temperature: 0.8,
       max_tokens: CAPTION_TOKEN_LIMIT,
+      maxContinuations: 0,
     });
 
     await Content.create({
